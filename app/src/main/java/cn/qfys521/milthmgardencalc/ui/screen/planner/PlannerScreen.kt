@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -74,7 +73,6 @@ import cn.qfys521.milthmgardencalc.model.LevelUpgrade
 import cn.qfys521.milthmgardencalc.model.Plan
 import cn.qfys521.milthmgardencalc.model.PotAction
 import cn.qfys521.milthmgardencalc.model.Song
-import cn.qfys521.milthmgardencalc.notification.NotificationScheduler
 import cn.qfys521.milthmgardencalc.ui.component.MiuixFilterChip
 import cn.qfys521.milthmgardencalc.ui.component.MiuixTimePickerDialog
 import cn.qfys521.milthmgardencalc.ui.theme.BodyMedium
@@ -463,9 +461,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                     ) {
                         IconButton(onClick = { scope.launch { scrollState.animateScrollTo(0) } }) {
                             Icon(Icons.Default.KeyboardArrowUp, contentDescription = "回到顶部")
-                        }
-                        IconButton(onClick = { NotificationScheduler.schedulePlan(context, p) }) {
-                            Icon(Icons.Default.Notifications, contentDescription = "设置提醒")
                         }
                         IconButton(onClick = { LAST_SHARE_PLAN = p; sharePlannerScreenshot(context) }) {
                             Icon(Icons.Default.Share, contentDescription = "分享截图")
