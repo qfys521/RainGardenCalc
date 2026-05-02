@@ -19,10 +19,6 @@ object CropSelector {
 
     private val SPECIAL_CROPS = setOf("毛头鬼伞", "毛茛")
 
-    /**
-     * Compute the time cost (hours) to produce 1 unit of each material type
-     * using the cheapest base crop (no material cost) at the given level.
-     */
     fun computeMaterialTimeCost(currentLevel: Int): Map<CropType, Double> {
         return ProductionEconomy.materialUnitTimeCosts(
             currentLevel = currentLevel,
@@ -30,10 +26,6 @@ object CropSelector {
         )
     }
 
-    /**
-     * Compute net efficiency for a crop (wiki 净收益):
-     * baseYield / (growthTime + sum(materialAmount * materialTimeCost))
-     */
     fun netEfficiency(crop: Crop, materialTimeCost: Map<CropType, Double>): Double {
         val materialCostTime = crop.materialCosts.sumOf { cost ->
             cost.amount * (materialTimeCost[cost.type] ?: 0.0)
@@ -43,10 +35,6 @@ object CropSelector {
         return crop.baseYield.toDouble() / totalTime
     }
 
-    /**
-     * Select the best crop for a given CropType at the current level.
-     * Uses net efficiency (including material cost time).
-     */
     fun bestCropForType(
         type: CropType,
         currentLevel: Int,
@@ -63,9 +51,6 @@ object CropSelector {
             .maxByOrNull { netEfficiency(it, mtc) }
     }
 
-    /**
-     * Create a CropPlan for a given crop and amount.
-     */
     fun createCropPlan(
         crop: Crop,
         amount: Int,
@@ -89,18 +74,14 @@ object CropSelector {
         )
     }
 
-    /**
-     * Compute watering count based on login interval and crop growth time.
-     * First watering is deferred to plantTime + 2*cooldown (not same login as planting).
-     */
     fun computeWateringCount(growthTimeHours: Long, loginIntervalHours: Double): Int {
         if (growthTimeHours <= 0) return 0
         val cooldown = growthTimeHours * WateringSimulator.COOLDOWN_RATIO
-        var count = 0
-        var effTime = growthTimeHours.toDouble()
+        var count = 1
+        var effTime = growthTimeHours * WateringSimulator.getTimeMultiplier(1)
 
         while (count < WateringSimulator.MAX_WATERING_COUNT) {
-            val nextWaterTime = cooldown * (count + 2)
+            val nextWaterTime = cooldown * count
             if (nextWaterTime >= effTime) break
             count++
             effTime = growthTimeHours * WateringSimulator.getTimeMultiplier(count)

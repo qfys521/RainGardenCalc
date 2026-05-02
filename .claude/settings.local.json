@@ -46,7 +46,8 @@
       "Bash(dir *)",
       "WebFetch(domain:compose-miuix-ui.github.io)",
       "WebFetch(domain:miuix-ui.github.io)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(./gradlew.bat assembleDebug)"
     ]
   }
 }

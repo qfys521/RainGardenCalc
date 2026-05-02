@@ -9,9 +9,6 @@ import cn.qfys521.milthmgardencalc.model.PlantingAction
 
 object PlannerEngine {
 
-    /**
-     * Backward-compatible overload: uses fixed login interval.
-     */
     fun computePlan(
         materialNeeds: Map<CropType, Int>,
         existingInventory: Map<CropType, Int>,
@@ -25,9 +22,6 @@ object PlannerEngine {
         return computePlan(materialNeeds, existingInventory, potCount, loginTimes, currentLevel, targetLevel, isLevelMode)
     }
 
-    /**
-     * Main overload: uses custom login timestamps.
-     */
     fun computePlan(
         materialNeeds: Map<CropType, Int>,
         existingInventory: Map<CropType, Int>,
@@ -70,8 +64,7 @@ object PlannerEngine {
             isLevelMode = isLevelMode
         )
 
-        // Extract actual crop usage from simulation login schedule
-        val cropStats = mutableMapOf<String, Triple<cn.qfys521.milthmgardencalc.model.Crop, Int, Int>>() // name -> (crop, planted, harvested)
+        val cropStats = mutableMapOf<String, Triple<cn.qfys521.milthmgardencalc.model.Crop, Int, Int>>()
         for (event in simResult.loginSchedule) {
             for (action in event.potActions) {
                 val crop = action.crop ?: continue
@@ -111,7 +104,6 @@ object PlannerEngine {
             )
         }
 
-        // Compute per-level crop progression
         data class CropLevelKey(val level: Int, val cropName: String)
         val levelCropMap = mutableMapOf<CropLevelKey, Triple<cn.qfys521.milthmgardencalc.model.Crop, Int, Int>>()
         for (event in simResult.loginSchedule) {
@@ -170,11 +162,6 @@ object PlannerEngine {
             .flatMap { it.materialCosts }
     }
 
-    /**
-     * Plan each level independently and merge results.
-     * For each level, calculates the materials needed for that level's upgrade + pot unlock,
-     * runs a simulation to produce those materials, then carries inventory forward.
-     */
     fun computePlanPerLevel(
         currentLevel: Int,
         targetLevel: Int,
@@ -194,35 +181,30 @@ object PlannerEngine {
         for (level in currentLevel until targetLevel) {
             val nextLevel = level + 1
 
-            // Calculate this level's upgrade costs
             val upgrade = cn.qfys521.milthmgardencalc.model.LevelUpgrade.UPGRADES.find { it.level == nextLevel }
             val levelCosts = upgrade?.materialCosts?.associate { it.type to it.amount } ?: emptyMap()
 
-            // Calculate pot unlock costs at this level
             val pot = FlowerPot.POTS.find { it.unlockLevel == nextLevel }
             val potCosts = pot?.materialCosts?.associate { it.type to it.amount } ?: emptyMap()
 
-            // Total needs for this level
             val levelNeeds = (levelCosts.keys + potCosts.keys).associate { type ->
                 type to ((levelCosts[type] ?: 0) + (potCosts[type] ?: 0))
             }.filter { it.value > 0 }
 
-            // Accumulate total material needs
             levelNeeds.forEach { (type, amount) ->
                 totalMaterialNeeds[type] = totalMaterialNeeds.getValue(type) + amount
             }
 
-            // Net needs after deducting current inventory
             val netNeeds = levelNeeds.mapValues { (type, amount) ->
                 (amount - inventory.getValue(type)).coerceAtLeast(0)
             }.filter { it.value > 0 }
 
-            // Available pots at this level
             val potCount = FlowerPot.POTS.count { it.unlockLevel <= level }.coerceAtLeast(1)
 
             if (netNeeds.isNotEmpty()) {
-                // Filter login times to those after the current time offset
-                val availableLoginTimes = loginTimes.filter { it >= timeOffset - 0.001 }
+                val isEventDriven = loginTimes.size >= 2 && loginTimes[1] < loginTimes[0]
+                val availableLoginTimes = if (isEventDriven) loginTimes
+                    else loginTimes.filter { it >= timeOffset - 0.001 }
 
                 val simResult = PotSimulator.simulate(
                     productionTargets = netNeeds,
@@ -234,43 +216,36 @@ object PlannerEngine {
                     isLevelMode = false
                 )
 
-                // Merge schedule events (adjust login indices)
                 for (event in simResult.loginSchedule) {
                     allSchedules.add(event.copy(loginIndex = totalLoginCount + event.loginIndex))
                 }
 
-                // Update time offset
                 if (simResult.loginSchedule.isNotEmpty()) {
                     val lastEvent = simResult.loginSchedule.last()
                     timeOffset = lastEvent.timeHours
                     totalLoginCount += simResult.totalLoginCount
                 }
 
-                // Merge production
                 simResult.productionSummary.forEach { (type, amount) ->
                     allProduction[type] = allProduction.getValue(type) + amount
                 }
 
-                // Add produced materials to inventory
                 simResult.productionSummary.forEach { (type, amount) ->
                     inventory[type] = inventory.getValue(type) + amount
                 }
             }
 
-            // Deduct level upgrade costs from inventory
             levelCosts.forEach { (type, amount) ->
                 inventory[type] = (inventory.getValue(type) - amount).coerceAtLeast(0)
                 allLevelUpSpending[type] = allLevelUpSpending.getValue(type) + amount
             }
 
-            // Deduct pot unlock costs from inventory
             potCosts.forEach { (type, amount) ->
                 inventory[type] = (inventory.getValue(type) - amount).coerceAtLeast(0)
                 allPotUnlockSpending[type] = allPotUnlockSpending.getValue(type) + amount
             }
         }
 
-        // Build crop progression from all schedules
         data class CropLevelKey(val level: Int, val cropName: String)
         val levelCropMap = mutableMapOf<CropLevelKey, Triple<cn.qfys521.milthmgardencalc.model.Crop, Int, Int>>()
         for (event in allSchedules) {
@@ -305,7 +280,6 @@ object PlannerEngine {
             }
             .sortedWith(compareBy<cn.qfys521.milthmgardencalc.model.LevelCropUsage> { it.level }.thenBy { it.cropName })
 
-        // Build steps from crop progression
         val steps = cropProgression.groupBy { it.cropName }.mapNotNull { (_, usages) ->
             val first = usages.first()
             val crop = Crop.CROPS.find { it.name == first.cropName } ?: return@mapNotNull null

@@ -4,14 +4,10 @@ import android.content.SharedPreferences
 import cn.qfys521.milthmgardencalc.model.CropType
 import cn.qfys521.milthmgardencalc.model.Song
 
-// ==================== Goal Config ====================
-
 sealed interface GoalConfig {
     data class LevelGoal(val currentLevel: Int, val targetLevel: Int) : GoalConfig
     data class SongGoal(val currentLevel: Int, val songIndex: Int) : GoalConfig
 }
-
-// ==================== Enums ====================
 
 enum class LoginMode(val label: String) {
     INTERVAL("间隔登录"),
@@ -27,11 +23,10 @@ enum class ScheduleFilter(val label: String) {
     NO_WATER("隐藏浇水")
 }
 
-// ==================== State ====================
-
 data class PlannerState(
     val goal: GoalConfig = GoalConfig.LevelGoal(1, 2),
     val loginMode: LoginMode = LoginMode.INTERVAL,
+    val baseTimeHours: Double = 0.0,
     val intervalHours: Double = 8.0,
     val customTimes: List<Double> = listOf(0.0),
     val repeatDays: Int = 1,
@@ -47,8 +42,6 @@ data class PlannerState(
         get() = if (untilGoal) 36500 else repeatDays.coerceIn(1, 365)
 }
 
-// ==================== SharedPreferences ====================
-
 internal const val PREFS_NAME = "planner_state"
 
 private const val KEY_GOAL_MODE = "planner_goal_mode"
@@ -57,6 +50,7 @@ private const val KEY_LEVEL_TARGET = "planner_level_target"
 private const val KEY_SONG_LEVEL = "planner_song_level"
 private const val KEY_SONG_INDEX = "planner_song_index"
 private const val KEY_LOGIN_MODE = "planner_login_mode"
+private const val KEY_BASE_TIME = "planner_base_time"
 private const val KEY_INTERVAL = "planner_interval"
 private const val KEY_CUSTOM_TIMES = "planner_custom_times"
 private const val KEY_REPEAT_DAYS = "planner_repeat_days"
@@ -94,6 +88,7 @@ fun loadPlannerState(prefs: SharedPreferences): PlannerState {
     return PlannerState(
         goal = goal,
         loginMode = loginMode,
+        baseTimeHours = prefs.getFloat(KEY_BASE_TIME, 0.0f).toDouble().coerceIn(0.0, 23.5),
         intervalHours = prefs.getFloat(KEY_INTERVAL, 8.0f).toDouble().coerceIn(0.5, 48.0),
         customTimes = customTimes,
         repeatDays = repeatDays,
@@ -117,6 +112,7 @@ fun savePlannerState(prefs: SharedPreferences, state: PlannerState) {
             }
         }
         putInt(KEY_LOGIN_MODE, state.loginMode.ordinal)
+        putFloat(KEY_BASE_TIME, state.baseTimeHours.toFloat())
         putFloat(KEY_INTERVAL, state.intervalHours.toFloat())
         putDoubleListPrefs(this, KEY_CUSTOM_TIMES, state.customTimes)
         putInt(KEY_REPEAT_DAYS, state.repeatDays)
@@ -127,8 +123,6 @@ fun savePlannerState(prefs: SharedPreferences, state: PlannerState) {
         apply()
     }
 }
-
-// ==================== Helpers ====================
 
 private fun readDoubleListPrefs(prefs: SharedPreferences, key: String, default: List<Double>): List<Double> {
     val raw = prefs.getString(key, null) ?: return default

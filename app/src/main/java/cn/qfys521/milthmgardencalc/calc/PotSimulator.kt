@@ -41,9 +41,6 @@ object PotSimulator {
     const val MAX_LOGINS = 2000
     private const val MAX_SIM_TIME = 10000.0
 
-    /**
-     * Backward-compatible overload: generate fixed login times from interval.
-     */
     fun simulate(
         productionTargets: Map<CropType, Int>,
         potCount: Int,
@@ -57,9 +54,6 @@ object PotSimulator {
         return simulate(productionTargets, potCount, loginTimes, existingInventory, startLevel, targetLevel, isLevelMode)
     }
 
-    /**
-     * Main simulation with custom login timestamps.
-     */
     fun simulate(
         productionTargets: Map<CropType, Int>,
         potCount: Int,
@@ -94,7 +88,6 @@ object PotSimulator {
         val potUnlockSpending = mutableMapOf<CropType, Int>().withDefault { 0 }
         val schedule = mutableListOf<LoginScheduleEvent>()
 
-        // Build pot unlock lookup: level -> pot unlock entry
         val potUnlockByLevel = if (isLevelMode) {
             FlowerPot.POTS.mapIndexedNotNull { index, pot ->
                 if (pot.unlockLevel > startLevel && pot.unlockLevel <= targetLevel) {
@@ -119,11 +112,6 @@ object PotSimulator {
             val potCosts: Map<CropType, Int> = emptyMap()
         )
 
-        /**
-         * Compute the time cost (in hours) to produce 1 unit of each material type,
-         * using the cheapest base crop (no material cost) available at current level.
-         * Must be recomputed whenever currentLevel changes.
-         */
         fun computeMaterialTimeCost(): Map<CropType, Double> {
             return ProductionEconomy.materialUnitTimeCosts(
                 currentLevel = currentLevel,
@@ -133,11 +121,6 @@ object PotSimulator {
 
         var materialTimeCost = computeMaterialTimeCost()
 
-        /**
-         * Try to level up as many times as possible.
-         * Returns true if any level-up occurred.
-         * Also handles pot unlocks at each new level.
-         */
         fun tryLevelUp(): List<LevelUpAction> {
             val actions = mutableListOf<LevelUpAction>()
             while (currentLevel < targetLevel) {
@@ -155,18 +138,16 @@ object PotSimulator {
                 }
                 currentLevel = nextLevel
 
-                // Check pot unlock at this level
                 val potUnlock = potUnlockByLevel[nextLevel]
-                var potCostMap = emptyMap<CropType, Int>()
+                var potCostMap: MutableMap<CropType, Int> = mutableMapOf()
                 var potIdx = -1
                 if (potUnlock != null) {
                     val canAffordPot = potUnlock.materialCosts.all { inventory.getValue(it.type) >= it.amount }
                     if (canAffordPot) {
-                        potCostMap = mutableMapOf<CropType, Int>()
                         for (cost in potUnlock.materialCosts) {
                             inventory[cost.type] = inventory.getValue(cost.type) - cost.amount
                             potUnlockSpending[cost.type] = potUnlockSpending.getValue(cost.type) + cost.amount
-                            (potCostMap as MutableMap<CropType, Int>)[cost.type] = cost.amount
+                            potCostMap[cost.type] = cost.amount
                         }
                         potIdx = potUnlock.potCount - 1
                         expandPots(potUnlock.potCount)
@@ -174,7 +155,6 @@ object PotSimulator {
                 }
                 actions.add(LevelUpAction(nextLevel, levelCostMap, potIdx, potCostMap))
             }
-            // Recompute material time costs with newly unlocked crops
             if (actions.isNotEmpty()) {
                 materialTimeCost = computeMaterialTimeCost()
             }
@@ -190,10 +170,6 @@ object PotSimulator {
             }
         }
 
-        /**
-         * Check if all production targets are met.
-         * A target is met if the total produced (across all crop types) >= target.
-         */
         fun allTargetsMet(): Boolean {
             return productionTargets.all { (type, target) ->
                 produced.getValue(type) >= target
@@ -215,9 +191,9 @@ object PotSimulator {
             if (crop.growthTimeHours <= 0) return null
             val baseTime = crop.growthTimeHours.toDouble()
             val cooldown = baseTime * WateringSimulator.COOLDOWN_RATIO
-            var lastWater = plantTime + cooldown
-            var wateringDone = 0
-            var readyTime = plantTime + baseTime
+            var lastWater = plantTime
+            var wateringDone = 1
+            var readyTime = plantTime + baseTime * WateringSimulator.getTimeMultiplier(1)
 
             for (i in (currentLoginIdx + 1) until loginTimes.size) {
                 val nextLogin = loginTimes[i]
@@ -243,7 +219,6 @@ object PotSimulator {
         var pendingBatchCount = 0
         var currentLoginIdx = 0
 
-        // Try initial level-up with existing inventory
         run {
             val lvActions = tryLevelUp()
             if (lvActions.isNotEmpty()) {
@@ -275,7 +250,6 @@ object PotSimulator {
             val potActions = mutableListOf<PotSchedule>()
             var hasActivity = false
 
-            // 1. Harvest ready crops
             for (j in pots.indices) {
                 val slot = pots[j] ?: continue
                 if (currentTime >= slot.readyTime - 0.001) {
@@ -293,7 +267,6 @@ object PotSimulator {
                 }
             }
 
-            // 2. Try level up (after harvest adds to inventory)
             run {
                 val lvActions = tryLevelUp()
                 for (action in lvActions) {
@@ -313,7 +286,6 @@ object PotSimulator {
                 }
             }
 
-            // 3. Check if targets already met
             if (allTargetsMet() && pots.all { it == null }) {
                 if (hasActivity) {
                     schedule.add(LoginScheduleEvent(loginCount, currentTime, potActions, inventory.toMap(), currentLevel))
@@ -322,7 +294,6 @@ object PotSimulator {
                 break
             }
 
-            // 4. Plant regular crops in empty pots
             for (j in pots.indices) {
                 if (pots[j] != null) continue
 
@@ -383,16 +354,16 @@ object PotSimulator {
                     plantTime = currentTime,
                     baseGrowthTime = baseTime,
                     cooldown = cooldown,
-                    wateringDone = 0,
-                    lastWaterTime = currentTime + cooldown,
+                    wateringDone = 1,
+                    lastWaterTime = currentTime,
                     readyTime = timing.readyTime
                 )
                 pendingBatchCount++
                 potActions.add(PotSchedule(j, PotAction.PLANT, crop, 1))
+                potActions.add(PotSchedule(j, PotAction.WATER, crop, note = "浇水 1/${WateringSimulator.MAX_WATERING_COUNT}"))
                 hasActivity = true
             }
 
-            // 5. Water phase
             for (j in pots.indices) {
                 val slot = pots[j] ?: continue
                 if (slot.baseGrowthTime <= 0) continue
@@ -412,7 +383,6 @@ object PotSimulator {
                 }
             }
 
-            // 6. Fill IDLE for pots with no action
             for (j in pots.indices) {
                 if (potActions.none { it.potIndex == j }) {
                     potActions.add(PotSchedule(j, PotAction.IDLE, null))
@@ -424,7 +394,6 @@ object PotSimulator {
                 loginCount++
             }
 
-            // 7. Advance to next login
             currentLoginIdx++
         }
 
@@ -510,16 +479,15 @@ object PotSimulator {
                 currentLevel = nextLevel
 
                 val potUnlock = potUnlockByLevel[nextLevel]
-                var potCostMap = emptyMap<CropType, Int>()
+                var potCostMap: MutableMap<CropType, Int> = mutableMapOf()
                 var potIdx = -1
                 if (potUnlock != null) {
                     val canAffordPot = potUnlock.materialCosts.all { inventory.getValue(it.type) >= it.amount }
                     if (canAffordPot) {
-                        potCostMap = mutableMapOf<CropType, Int>()
                         for (cost in potUnlock.materialCosts) {
                             inventory[cost.type] = inventory.getValue(cost.type) - cost.amount
                             potUnlockSpending[cost.type] = potUnlockSpending.getValue(cost.type) + cost.amount
-                            (potCostMap as MutableMap<CropType, Int>)[cost.type] = cost.amount
+                            potCostMap[cost.type] = cost.amount
                         }
                         potIdx = potUnlock.potCount - 1
                         expandPots(potUnlock.potCount)
@@ -554,9 +522,9 @@ object PotSimulator {
             if (crop.growthTimeHours <= 0) return null
             val base = crop.growthTimeHours.toDouble()
             val cooldown = base * WateringSimulator.COOLDOWN_RATIO
-            var lastWater = plantTime + cooldown
-            var wateringDone = 0
-            var readyTime = plantTime + base
+            var lastWater = plantTime
+            var wateringDone = 1
+            var readyTime = plantTime + base * WateringSimulator.getTimeMultiplier(1)
             while (wateringDone < WateringSimulator.MAX_WATERING_COUNT) {
                 val nextWater = lastWater + cooldown
                 if (nextWater >= readyTime) break
@@ -683,9 +651,10 @@ object PotSimulator {
                 deductCropCosts(crop)
                 val baseTime = crop.growthTimeHours.toDouble()
                 val cooldown = WateringSimulator.wateringCooldown(crop.growthTimeHours)
-                pots[j] = PotSlot(crop, 1, currentTime, baseTime, cooldown, 0, currentTime + cooldown, timing.readyTime)
+                pots[j] = PotSlot(crop, 1, currentTime, baseTime, cooldown, 1, currentTime, timing.readyTime)
                 pendingBatchCount++
                 potActions.add(PotSchedule(j, PotAction.PLANT, crop, 1))
+                potActions.add(PotSchedule(j, PotAction.WATER, crop, note = "浇水 1/${WateringSimulator.MAX_WATERING_COUNT}"))
                 hasActivity = true
             }
 

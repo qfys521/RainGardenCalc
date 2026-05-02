@@ -94,6 +94,7 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
     var state by remember { mutableStateOf(loadPlannerState(prefs)) }
     var plan by remember { mutableStateOf<Plan?>(null) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showBaseTimePicker by remember { mutableStateOf(false) }
     var editingTimeIndex by remember { mutableStateOf(-1) }
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -114,7 +115,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
         ) {
             TopAppBar(title = "花园规划器", largeTitle = "花园规划器")
 
-            // ── Mode selector ──
             SmallTitle(text = "规划模式")
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -144,7 +144,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 )
             }
 
-            // ── Level goal ──
             AnimatedVisibility(
                 visible = state.goal is GoalConfig.LevelGoal,
                 enter = expandVertically(),
@@ -170,7 +169,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Song goal ──
             AnimatedVisibility(
                 visible = state.goal is GoalConfig.SongGoal,
                 enter = expandVertically(),
@@ -196,7 +194,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Needs preview ──
             AnimatedVisibility(
                 visible = needs.isNotEmpty(),
                 enter = expandVertically(),
@@ -221,7 +218,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Login config ──
             SmallTitle(text = "上号配置")
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -237,6 +233,24 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                                     selected = state.loginMode == mode,
                                     onClick = { state = state.copy(loginMode = mode); plan = null }
                                 ) { Text(mode.label) }
+                            }
+                        }
+                    }
+                )
+                HorizontalDivider()
+                val baseH = state.baseTimeHours.toLong()
+                val baseM = ((state.baseTimeHours - baseH) * 60).toLong()
+                BasicComponent(
+                    title = "基础时间",
+                    summary = String.format("%02d:%02d", baseH, baseM),
+                    onClick = { showBaseTimePicker = true },
+                    bottomAction = {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(0.0 to "0:00", 6.0 to "6:00", 8.0 to "8:00", 12.0 to "12:00").forEach { (value, label) ->
+                                MiuixFilterChip(
+                                    selected = state.baseTimeHours == value,
+                                    onClick = { state = state.copy(baseTimeHours = value); plan = null }
+                                ) { Text(label) }
                             }
                         }
                     }
@@ -320,7 +334,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Pot status ──
             SmallTitle(text = "花盆状态")
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -344,7 +357,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Inventory ──
             SmallTitle(text = "已有库存")
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -372,12 +384,11 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Generate button ──
             Spacer(modifier = Modifier.height(16.dp))
             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Button(
                     onClick = {
-                        val loginTimes = buildLoginTimes(state.loginMode, state.intervalHours, state.customTimes, state.effectiveRepeatDays)
+                        val loginTimes = buildLoginTimes(state.loginMode, state.intervalHours, state.customTimes, state.effectiveRepeatDays, state.baseTimeHours)
                         plan = when (val g = state.goal) {
                             is GoalConfig.LevelGoal -> PlannerEngine.computePlanPerLevel(g.currentLevel, g.targetLevel, state.inventory, loginTimes)
                             is GoalConfig.SongGoal -> {
@@ -394,7 +405,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 ) { Text("生成规划方案") }
             }
 
-            // ── Empty state ──
             AnimatedVisibility(visible = plan == null) {
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -419,7 +429,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            // ── Results ──
             plan?.let { p ->
                 PlanResults(
                     plan = p,
@@ -442,7 +451,6 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
             Spacer(modifier = Modifier.height(96.dp))
         }
 
-        // ── FloatingToolbar overlay ──
         plan?.let { p ->
             AnimatedVisibility(
                 visible = true,
@@ -487,9 +495,20 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
             plan = null
         }
     )
+
+    MiuixTimePickerDialog(
+        show = showBaseTimePicker,
+        initialHour = state.baseTimeHours.toLong().toInt(),
+        initialMinute = ((state.baseTimeHours - state.baseTimeHours.toLong()) * 60).toLong().toInt(),
+        onDismiss = { showBaseTimePicker = false },
+        onConfirm = { hour, minute ->
+            state = state.copy(baseTimeHours = hour + minute / 60.0)
+            showBaseTimePicker = false
+            plan = null
+        }
+    )
 }
 
-// ==================== Dropdown Components ====================
 
 @Composable
 private fun LevelDropdownRow(label: String, value: Int, range: IntRange, onSelect: (Int) -> Unit) {
@@ -514,7 +533,6 @@ private fun SongDropdownRow(selectedIndex: Int, onSelect: (Int) -> Unit) {
     )
 }
 
-// ==================== Needs Computation ====================
 
 private fun computeNeeds(state: PlannerState): Map<CropType, Int> {
     return when (val goal = state.goal) {
@@ -537,7 +555,6 @@ private fun computeNeeds(state: PlannerState): Map<CropType, Int> {
     }
 }
 
-// ==================== Plan Results ====================
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -585,7 +602,6 @@ private fun PlanResults(
         }
     }
 
-    // Overview
     SmallTitle(text = "方案概览")
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
         Column {
@@ -604,7 +620,6 @@ private fun PlanResults(
         }
     }
 
-    // Material summary
     if (plan.netNeeds.isNotEmpty()) {
         SmallTitle(text = "材料总览")
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
@@ -639,7 +654,6 @@ private fun PlanResults(
         }
     }
 
-    // Planting steps
     if (plan.steps.isNotEmpty()) {
         SmallTitle(text = "种植计划")
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
@@ -658,7 +672,6 @@ private fun PlanResults(
         }
     }
 
-    // Crop progression
     if (plan.cropProgression.isNotEmpty()) {
         SmallTitle(text = "各级作物使用明细")
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
@@ -686,7 +699,6 @@ private fun PlanResults(
         }
     }
 
-    // Schedule
     if (plan.loginSchedule.isNotEmpty()) {
         SmallTitle(text = "登录时间表")
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
@@ -770,13 +782,11 @@ private fun PlanResults(
                             style = BodyMedium
                         )
 
-                        // System actions (level up, pot unlock)
                         val systemActions = event.potActions.filter { it.action == PotAction.IDLE && it.note.isNotEmpty() }
                         systemActions.forEach { pot ->
                             Text("  ${pot.note}", style = BodySmall.copy(fontWeight = FontWeight.SemiBold), color = MiuixTheme.colorScheme.primary)
                         }
 
-                        // Group pot actions by pot index
                         val potGroups = event.potActions
                             .filter { it.action != PotAction.IDLE || it.note.isEmpty() }
                             .groupBy { it.potIndex }
@@ -820,17 +830,16 @@ private fun PlanResults(
     }
 }
 
-// ==================== Helpers ====================
 
-private fun buildLoginTimes(loginMode: LoginMode, loginInterval: Double, customLoginTimes: List<Double>, effectiveRepeatDays: Int): List<Double> {
+private fun buildLoginTimes(loginMode: LoginMode, loginInterval: Double, customLoginTimes: List<Double>, effectiveRepeatDays: Int, baseTime: Double = 0.0): List<Double> {
     return when (loginMode) {
-        LoginMode.INTERVAL -> PotSimulator.generateFixedLoginTimes(loginInterval)
+        LoginMode.INTERVAL -> PotSimulator.generateFixedLoginTimes(loginInterval).map { it + baseTime }
         LoginMode.CUSTOM -> {
             val baseTimes = customLoginTimes.sorted()
             val days = effectiveRepeatDays.coerceAtLeast(1000)
-            (0 until days).flatMap { day -> baseTimes.map { it + day * 24.0 } }
+            (0 until days).flatMap { day -> baseTimes.map { it + day * 24.0 + baseTime } }
         }
-        LoginMode.CROP_READY -> listOf(0.0, -(effectiveRepeatDays * 24.0))
+        LoginMode.CROP_READY -> listOf(baseTime, -(effectiveRepeatDays * 24.0))
     }
 }
 
@@ -920,19 +929,16 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
     val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = colorDivider; strokeWidth = 1.5f }
     val primaryBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = colorPrimary }
 
-    // Prepare data
     val materialTypes = (plan.materialNeeds.keys + plan.productionSummary.keys + plan.levelUpSpending.keys + plan.potUnlockSpending.keys).toSet()
     val scheduleEvents = plan.loginSchedule.filter { event ->
         event.potActions.any { it.action != PotAction.IDLE || it.note.isNotEmpty() }
     }
     val showSchedule = scheduleEvents
 
-    // ── Pass 1: calculate total height ──
     val headerH = 160f + pad
     val statsH = 120f
     var totalH = pad + headerH + cardGap + statsH + cardGap
 
-    // Material card
     val matRows = materialTypes.count { type ->
         val n = plan.materialNeeds[type] ?: 0; val e = plan.existingInventory[type] ?: 0
         val p = plan.productionSummary[type] ?: 0; val l = plan.levelUpSpending[type] ?: 0
@@ -941,12 +947,10 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
     }
     if (matRows > 0) totalH += (72 + cardPad + rowH * (matRows + 1) + cardPad) + cardGap
 
-    // Steps card
     val stepCount = plan.steps.size
     val stepExtraLines = plan.steps.count { it.crop.materialCosts.isNotEmpty() }
     if (stepCount > 0) totalH += (72 + cardPad + rowH * (stepCount + stepExtraLines) + cardPad) + cardGap
 
-    // Schedule card
     if (showSchedule.isNotEmpty()) {
         var schedRows = 0
         showSchedule.forEach { event ->
@@ -959,14 +963,12 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
 
     totalH += pad + 48f // footer
 
-    // ── Pass 2: draw ──
     val bitmap = Bitmap.createBitmap(width, totalH.toInt(), Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     canvas.drawRect(0f, 0f, width.toFloat(), totalH, bgPaint)
 
     var y = 0f
 
-    // Header
     canvas.drawRect(0f, 0f, width.toFloat(), 160f + pad, primaryBgPaint)
     y += pad
     canvas.drawText("露晓卉庭规划", pad.toFloat(), y + 56f, titlePaint)
@@ -977,7 +979,6 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
     canvas.drawText(goalText, pad.toFloat(), y + 128f, subtitlePaint)
     y += 160f + cardGap
 
-    // Stats card
     drawCard(canvas, cardLeft, y, cardRight, y + statsH, cardRadius, cardPaint)
     val stats = listOf(
         "花盆" to "${plan.potCount}个",
@@ -997,7 +998,6 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
     }
     y += statsH + cardGap
 
-    // Material summary card
     if (matRows > 0) {
         val cardH = 72 + cardPad + rowH * (matRows + 1) + cardPad
         drawCard(canvas, cardLeft, y, cardRight, y + cardH, cardRadius, cardPaint)
@@ -1028,9 +1028,8 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
         y += cardH + cardGap
     }
 
-    // Planting steps card
     if (stepCount > 0) {
-        val cardH = (72 + cardPad + rowH * (stepCount + stepExtraLines) + cardPad).toFloat()
+        val cardH = 72 + cardPad + rowH * (stepCount + stepExtraLines) + cardPad
         drawCard(canvas, cardLeft, y, cardRight, y + cardH, cardRadius, cardPaint)
         canvas.drawText("种植计划", cardLeft + cardPad, y + 44f, sectionPaint)
         var ry = y + 72f
@@ -1049,9 +1048,7 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
         y += cardH + cardGap
     }
 
-    // Schedule card
     if (showSchedule.isNotEmpty()) {
-        // Calculate rows: 1 header + 1 per pot group + 1 for system actions per event
         var totalRows = 0
         showSchedule.forEach { event ->
             totalRows += 1 // header
@@ -1060,7 +1057,7 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
             val potGroups = event.potActions.filter { it.action != PotAction.IDLE || it.note.isEmpty() }.groupBy { it.potIndex }
             totalRows += potGroups.size
         }
-        val cardH = (72 + cardPad + rowH * totalRows + cardPad).toFloat()
+        val cardH = 72 + cardPad + rowH * totalRows + cardPad
         drawCard(canvas, cardLeft, y, cardRight, y + cardH, cardRadius, cardPaint)
         canvas.drawText("登录时间表", cardLeft + cardPad, y + 44f, sectionPaint)
         var ry = y + 72f
@@ -1072,13 +1069,11 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
             canvas.drawText("第${event.loginIndex + 1}次  Day$dayNum $hh:$mm", cardLeft + cardPad, ry, bodyBoldPaint)
             ry += rowH
 
-            // System actions
             event.potActions.filter { it.action == PotAction.IDLE && it.note.isNotEmpty() }.forEach { pot ->
                 canvas.drawText(pot.note, cardLeft + cardPad + 16f, ry, accentPaint)
                 ry += rowH
             }
 
-            // Group pot actions by pot index
             event.potActions
                 .filter { it.action != PotAction.IDLE || it.note.isEmpty() }
                 .groupBy { it.potIndex }
@@ -1104,7 +1099,6 @@ private fun renderPlanLongBitmap(context: Context): Bitmap {
         y += cardH + cardGap
     }
 
-    // Footer
     y += 16f
     val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = colorTextSecondary; textSize = 22f; textAlign = Paint.Align.CENTER }
     canvas.drawText("露晓卉庭计算器 · Milthm Garden Calculator", width / 2f, y + 22f, footerPaint)
