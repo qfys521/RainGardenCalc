@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "cn.qfys521.milthmgardencalc"
+    namespace = "cn.qfys521.raingardencalculate"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "cn.qfys521.milthmgardencalc"
+        applicationId = "cn.qfys521.raingardencalculate"
         minSdk = 28
         targetSdk = 37
         versionCode = 1

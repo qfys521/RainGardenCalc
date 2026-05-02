@@ -1,11 +1,11 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="120" height="120" alt="Milthm Garden Calc">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="120" height="120" alt="Rain Garden Calculate">
 </p>
 
 <div align="center">
 
-# Milthm Garden Calc
+# Rain Garden Calculate
 
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable-next-line MD036 -->
@@ -22,7 +22,7 @@ _✨ 音游 Milthm 花园系统辅助规划工具 ✨_
 
 ## 简介
 
-Milthm Garden Calc 是一款专为音游 [Milthm](https://store.steampowered.com/app/2351260/Milthm/) 设计的花园系统辅助规划工具。帮助玩家合理安排种植计划，高效获取材料以解锁歌曲和提升等级。
+Rain Garden Calculate 是一款专为音游 [Milthm](https://store.steampowered.com/app/2351260/Milthm/) 设计的花园系统辅助规划工具。帮助玩家合理安排种植计划，高效获取材料以解锁歌曲和提升等级。
 
 ## 功能
 

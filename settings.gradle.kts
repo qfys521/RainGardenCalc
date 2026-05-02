@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Milthm Garden Calc"
+rootProject.name = "Rain Garden Calculate"
 include(":app")
