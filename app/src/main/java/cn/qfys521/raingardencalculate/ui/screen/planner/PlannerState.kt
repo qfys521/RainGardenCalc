@@ -36,7 +36,9 @@ data class PlannerState(
     val filter: ScheduleFilter = ScheduleFilter.ALL,
     val pageSize: Int = 10,
     val currentPage: Int = 0,
-    val customPageSizeText: String = "10"
+    val customPageSizeText: String = "10",
+    val plantingPlanCollapsed: Boolean = true,
+    val cropProgressionCollapsed: Boolean = true
 ) {
     val effectiveRepeatDays: Int
         get() = if (untilGoal) 36500 else repeatDays.coerceIn(1, 365)

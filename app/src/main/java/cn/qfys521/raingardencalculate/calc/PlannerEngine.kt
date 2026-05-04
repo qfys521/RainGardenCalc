@@ -175,7 +175,11 @@ object PlannerEngine {
         val allLevelUpSpending = mutableMapOf<CropType, Int>().withDefault { 0 }
         val allPotUnlockSpending = mutableMapOf<CropType, Int>().withDefault { 0 }
         val totalMaterialNeeds = mutableMapOf<CropType, Int>().withDefault { 0 }
-        var timeOffset = 0.0
+        val isEventDriven = loginTimes.size >= 2 && loginTimes[1] < loginTimes[0]
+        val eventDrivenStartTime = if (isEventDriven) loginTimes[0] else 0.0
+        val eventDrivenWindowHours = if (isEventDriven) (loginTimes[0] - loginTimes[1]).coerceAtLeast(0.0) else 0.0
+        val eventDrivenEndTime = eventDrivenStartTime + eventDrivenWindowHours
+        var timeOffset = if (isEventDriven) eventDrivenStartTime else 0.0
         var totalLoginCount = 0
 
         for (level in currentLevel until targetLevel) {
@@ -202,9 +206,13 @@ object PlannerEngine {
             val potCount = FlowerPot.POTS.count { it.unlockLevel <= level }.coerceAtLeast(1)
 
             if (netNeeds.isNotEmpty()) {
-                val isEventDriven = loginTimes.size >= 2 && loginTimes[1] < loginTimes[0]
-                val availableLoginTimes = if (isEventDriven) loginTimes
-                    else loginTimes.filter { it >= timeOffset - 0.001 }
+                val availableLoginTimes = if (isEventDriven) {
+                    val remainingWindowHours = (eventDrivenEndTime - timeOffset).coerceAtLeast(0.0)
+                    if (remainingWindowHours <= 0.001) emptyList()
+                    else listOf(timeOffset, timeOffset - remainingWindowHours)
+                } else {
+                    loginTimes.filter { it >= timeOffset - 0.001 }
+                }
 
                 val simResult = PotSimulator.simulate(
                     productionTargets = netNeeds,

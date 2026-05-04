@@ -46,7 +46,6 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -54,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,7 +82,9 @@ import java.io.FileOutputStream
 import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -97,7 +99,16 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(state) {
+    LaunchedEffect(
+        state.goal,
+        state.loginMode,
+        state.baseTimeHours,
+        state.intervalHours,
+        state.customTimes,
+        state.repeatDays,
+        state.untilGoal,
+        state.inventory
+    ) {
         savePlannerState(prefs, state)
     }
 
@@ -440,9 +451,13 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                     onSearchChange = { state = state.copy(searchQuery = it, currentPage = 0) },
                     onFilterChange = { state = state.copy(filter = it, currentPage = 0) },
                     onPageSizeChange = { state = state.copy(pageSize = it, currentPage = 0) },
-                    onPageChange = { state = state.copy(currentPage = it) },
+                    onPageChange = { targetPage -> state = state.copy(currentPage = targetPage.coerceAtLeast(0)) },
                     customPageSizeText = state.customPageSizeText,
-                    onCustomPageSizeTextChange = { state = state.copy(customPageSizeText = it) }
+                    onCustomPageSizeTextChange = { state = state.copy(customPageSizeText = it) },
+                    plantingPlanCollapsed = state.plantingPlanCollapsed,
+                    onPlantingPlanCollapsedChange = { state = state.copy(plantingPlanCollapsed = it) },
+                    cropProgressionCollapsed = state.cropProgressionCollapsed,
+                    onCropProgressionCollapsedChange = { state = state.copy(cropProgressionCollapsed = it) }
                 )
             }
 
@@ -462,7 +477,12 @@ fun PlannerScreen(modifier: Modifier = Modifier) {
                         IconButton(onClick = { scope.launch { scrollState.animateScrollTo(0) } }) {
                             Icon(Icons.Default.KeyboardArrowUp, contentDescription = "回到顶部")
                         }
-                        IconButton(onClick = { LAST_SHARE_PLAN = p; sharePlannerScreenshot(context) }) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                LAST_SHARE_PLAN = p
+                                sharePlannerScreenshot(context)
+                            }
+                        }) {
                             Icon(Icons.Default.Share, contentDescription = "分享截图")
                         }
                         IconButton(onClick = { sharePlanJson(context, p) }) {
@@ -567,7 +587,11 @@ private fun PlanResults(
     onPageSizeChange: (Int) -> Unit,
     onPageChange: (Int) -> Unit,
     customPageSizeText: String,
-    onCustomPageSizeTextChange: (String) -> Unit
+    onCustomPageSizeTextChange: (String) -> Unit,
+    plantingPlanCollapsed: Boolean,
+    onPlantingPlanCollapsedChange: (Boolean) -> Unit,
+    cropProgressionCollapsed: Boolean,
+    onCropProgressionCollapsedChange: (Boolean) -> Unit
 ) {
     if (plan.isAlreadySatisfied) {
         SmallTitle(text = "材料已充足")
@@ -650,44 +674,58 @@ private fun PlanResults(
     }
 
     if (plan.steps.isNotEmpty()) {
-        SmallTitle(text = "种植计划")
-        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
-            Column {
-                plan.steps.forEachIndexed { index, step ->
-                    if (index > 0) HorizontalDivider()
-                    val summaryText = buildString {
-                        append("x${step.batchCount} (${formatHours(step.cycleTimeHours)})")
-                        if (step.crop.materialCosts.isNotEmpty()) {
-                            append("\n耗材: ${step.crop.materialCosts.joinToString(", ") { "${it.type.displayName}*${it.amount}" }}")
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            SmallTitle(text = "种植计划", modifier = Modifier.weight(1f))
+            IconButton(onClick = { onPlantingPlanCollapsedChange(!plantingPlanCollapsed) }) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+            }
+        }
+        AnimatedVisibility(visible = !plantingPlanCollapsed, enter = expandVertically(), exit = shrinkVertically()) {
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
+                Column {
+                    plan.steps.forEachIndexed { index, step ->
+                        if (index > 0) HorizontalDivider()
+                        val summaryText = buildString {
+                            append("x${step.batchCount} (${formatHours(step.cycleTimeHours)})")
+                            if (step.crop.materialCosts.isNotEmpty()) {
+                                append("\n耗材: ${step.crop.materialCosts.joinToString(", ") { "${it.type.displayName}*${it.amount}" }}")
+                            }
                         }
+                        BasicComponent(title = "${index + 1}. ${step.crop.name}", summary = summaryText)
                     }
-                    BasicComponent(title = "${index + 1}. ${step.crop.name}", summary = summaryText)
                 }
             }
         }
     }
 
     if (plan.cropProgression.isNotEmpty()) {
-        SmallTitle(text = "各级作物使用明细")
-        Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
-            Column {
-                val groupedByLevel = plan.cropProgression.groupBy { it.level }
-                var isFirst = true
-                groupedByLevel.toSortedMap().forEach { (level, usages) ->
-                    if (!isFirst) HorizontalDivider()
-                    isFirst = false
-                    BasicComponent(
-                        title = "Lv.$level",
-                        titleColor = BasicComponentDefaults.titleColor(color = MiuixTheme.colorScheme.primary)
-                    )
-                    usages.forEach { usage ->
-                        HorizontalDivider()
-                        val typeStr = usage.cropTypes.joinToString("/") { it.displayName }
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            SmallTitle(text = "各级作物使用明细", modifier = Modifier.weight(1f))
+            IconButton(onClick = { onCropProgressionCollapsedChange(!cropProgressionCollapsed) }) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+            }
+        }
+        AnimatedVisibility(visible = !cropProgressionCollapsed, enter = expandVertically(), exit = shrinkVertically()) {
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), colors = CardDefaults.defaultColors()) {
+                Column {
+                    val groupedByLevel = plan.cropProgression.groupBy { it.level }
+                    var isFirst = true
+                    groupedByLevel.toSortedMap().forEach { (level, usages) ->
+                        if (!isFirst) HorizontalDivider()
+                        isFirst = false
                         BasicComponent(
-                            title = "${usage.cropName} ($typeStr)",
-                            summary = "种植${usage.planted} 收获${usage.harvested}",
-                            insideMargin = PaddingValues(start = 32.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+                            title = "Lv.$level",
+                            titleColor = BasicComponentDefaults.titleColor(color = MiuixTheme.colorScheme.primary)
                         )
+                        usages.forEach { usage ->
+                            HorizontalDivider()
+                            val typeStr = usage.cropTypes.joinToString("/") { it.displayName }
+                            BasicComponent(
+                                title = "${usage.cropName} ($typeStr)",
+                                summary = "种植${usage.planted} 收获${usage.harvested}",
+                                insideMargin = PaddingValues(start = 32.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -758,8 +796,15 @@ private fun PlanResults(
                     matchesSearch && matchesFilter
                 }
 
+                var localPage by remember(plan, scheduleSearchQuery, scheduleFilter, pageSize) {
+                    mutableIntStateOf(currentPage.coerceAtLeast(0))
+                }
                 val totalPages = maxOf(1, (filteredSchedule.size + pageSize - 1) / pageSize)
-                val safePage = currentPage.coerceIn(0, totalPages - 1)
+                LaunchedEffect(currentPage, totalPages) {
+                    val normalizedPage = currentPage.coerceIn(0, totalPages - 1)
+                    if (localPage != normalizedPage) localPage = normalizedPage
+                }
+                val safePage = localPage.coerceIn(0, totalPages - 1)
                 val paginatedSchedule = filteredSchedule.drop(safePage * pageSize).take(pageSize)
 
                 Text("共 ${filteredSchedule.size} 条记录", style = BodySmall, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -779,7 +824,7 @@ private fun PlanResults(
 
                         val systemActions = event.potActions.filter { it.action == PotAction.IDLE && it.note.isNotEmpty() }
                         systemActions.forEach { pot ->
-                            Text("  ${pot.note}", style = BodySmall.copy(fontWeight = FontWeight.SemiBold), color = MiuixTheme.colorScheme.primary)
+                            Text("  ${pot.note}", style = BodySmall, color = MiuixTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.SemiBold)
                         }
 
                         val potGroups = event.potActions
@@ -815,9 +860,25 @@ private fun PlanResults(
                 if (totalPages > 1) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(text = "上一页", onClick = { onPageChange(safePage - 1) }, enabled = safePage > 0, colors = ButtonDefaults.textButtonColorsPrimary())
+                        Button(
+                            onClick = {
+                                val target = (safePage - 1).coerceAtLeast(0)
+                                localPage = target
+                                onPageChange(target)
+                            },
+                            enabled = safePage > 0,
+                            colors = ButtonDefaults.buttonColorsPrimary()
+                        ) { Text("上一页") }
                         Text("${safePage + 1} / $totalPages", modifier = Modifier.padding(horizontal = 16.dp), style = BodyMedium)
-                        TextButton(text = "下一页", onClick = { onPageChange(safePage + 1) }, enabled = safePage < totalPages - 1, colors = ButtonDefaults.textButtonColorsPrimary())
+                        Button(
+                            onClick = {
+                                val target = (safePage + 1).coerceAtMost(totalPages - 1)
+                                localPage = target
+                                onPageChange(target)
+                            },
+                            enabled = safePage < totalPages - 1,
+                            colors = ButtonDefaults.buttonColorsPrimary()
+                        ) { Text("下一页") }
                     }
                 }
             }
@@ -861,13 +922,17 @@ private fun formatClockTime(hours: Double): String {
     return "D$day ${String.format("%02d:%02d", h, m)}"
 }
 
-private fun sharePlannerScreenshot(context: Context) {
+private suspend fun sharePlannerScreenshot(context: Context) {
     try {
-        val bitmap = renderPlanLongBitmap(context)
-        val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val imageFile = File(sharedDir, "plan_long_share.png")
-        FileOutputStream(imageFile).use { output ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+        val imageFile = withContext(Dispatchers.Default) {
+            val bitmap = renderPlanLongBitmap()
+            val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
+            val file = File(sharedDir, "plan_long_share.png")
+            FileOutputStream(file).use { output ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+            bitmap.recycle()
+            file
         }
         val imageUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", imageFile)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -877,6 +942,8 @@ private fun sharePlannerScreenshot(context: Context) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(shareIntent, "分享长截图"))
+    } catch (_: OutOfMemoryError) {
+        Toast.makeText(context, "截图过长，导出失败", Toast.LENGTH_SHORT).show()
     } catch (_: IOException) {
         Toast.makeText(context, "截图分享失败", Toast.LENGTH_SHORT).show()
     } catch (_: IllegalArgumentException) {
@@ -886,7 +953,7 @@ private fun sharePlannerScreenshot(context: Context) {
     }
 }
 
-private fun renderPlanLongBitmap(context: Context): Bitmap {
+private fun renderPlanLongBitmap(): Bitmap {
     val plan = LAST_SHARE_PLAN ?: throw IOException("No plan to render")
 
     val colorBg = android.graphics.Color.parseColor("#F5F5F5")
